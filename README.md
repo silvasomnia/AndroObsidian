@@ -4,7 +4,7 @@ Display your Obsidian daily notes on your Galaxy Watch.
 
 ## Features
 
-- **Watch Tile**: Shows the last 12 lines (newest entries) with compact 9sp font
+- **Watch Tile**: Shows the last 9 lines (newest entries) with compact 9sp font
 - **Full Reader**: Scroll through the complete note using the rotating bezel (10sp font)
 - **Auto-sync**: Updates every 30 minutes in the background
 - **Manual sync**: Tap "Sync Now" in the phone app anytime

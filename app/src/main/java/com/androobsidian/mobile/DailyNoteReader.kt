@@ -94,39 +94,22 @@ class DailyNoteReader(private val context: Context) {
     private fun extractLastLines(text: String, lineCount: Int): String {
         val cleanedText = preprocessText(text)
         
-        // Process lines: strip markdown, filter blanks, then wrap long lines
-        val wrappedLines = cleanedText.lines()
+        return cleanedText.lines()
             .map { stripMarkdown(it) }
             .filter { it.isNotBlank() }
-            .flatMap { wrapLine(it, TILE_MAX_CHARS_PER_LINE) }
-        
-        return wrappedLines.takeLast(lineCount).joinToString("\n")
+            .takeLast(lineCount)
+            .map { ellipsize(it, TILE_MAX_CHARS_PER_LINE) }
+            .joinToString("\n")
     }
     
-    private fun wrapLine(line: String, maxChars: Int): List<String> {
-        if (maxChars <= 0) return listOf(line)
-        if (line.length <= maxChars) return listOf(line)
-        
-        val result = mutableListOf<String>()
-        var remaining = line
-        
-        while (remaining.length > maxChars) {
-            // Find last space within limit for word wrap
-            val breakPoint = remaining.lastIndexOf(' ', maxChars)
-            var splitAt = if (breakPoint > 0) breakPoint else maxChars
-            
-            // Avoid splitting surrogate pairs (emojis)
-            if (splitAt > 0 && Character.isHighSurrogate(remaining[splitAt - 1])) {
-                splitAt--
-            }
-            
-            result.add(remaining.take(splitAt).trimEnd())
-            remaining = remaining.drop(splitAt).trimStart()
+    private fun ellipsize(line: String, maxChars: Int): String {
+        if (maxChars <= 0 || line.length <= maxChars) return line
+        // Avoid splitting surrogate pairs (emojis)
+        var end = maxChars - 1
+        if (end > 0 && Character.isHighSurrogate(line[end - 1])) {
+            end--
         }
-        if (remaining.isNotBlank()) {
-            result.add(remaining)
-        }
-        return result
+        return line.take(end).trimEnd() + "…"
     }
 
     private fun stripMarkdown(line: String): String {
