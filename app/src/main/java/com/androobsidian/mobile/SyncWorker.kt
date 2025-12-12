@@ -50,7 +50,9 @@ class SyncWorker(
         fun schedule(context: Context) {
             val request = PeriodicWorkRequestBuilder<SyncWorker>(
                 repeatInterval = 30,
-                repeatIntervalTimeUnit = TimeUnit.MINUTES
+                repeatIntervalTimeUnit = TimeUnit.MINUTES,
+                flexTimeInterval = 5,
+                flexTimeIntervalUnit = TimeUnit.MINUTES
             ).setConstraints(
                 Constraints.Builder()
                     .setRequiresBatteryNotLow(true)
@@ -59,7 +61,7 @@ class SyncWorker(
 
             WorkManager.getInstance(context).enqueueUniquePeriodicWork(
                 WORK_NAME,
-                ExistingPeriodicWorkPolicy.KEEP,
+                ExistingPeriodicWorkPolicy.UPDATE,
                 request
             )
         }
