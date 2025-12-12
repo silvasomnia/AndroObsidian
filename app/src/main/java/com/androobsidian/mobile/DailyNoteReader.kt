@@ -12,6 +12,9 @@ data class NoteContent(
     val lastLines: String
 )
 
+private const val TILE_LINE_COUNT = 9
+private const val TILE_MAX_CHARS_PER_LINE = 50
+
 class DailyNoteReader(private val context: Context) {
 
     fun readLatestNote(treeUri: Uri): NoteContent? {
@@ -63,11 +66,11 @@ class DailyNoteReader(private val context: Context) {
                 NoteContent(
                     date = date,
                     fullText = text,
-                    lastLines = extractLastLines(text, lineCount = 12)
+                    lastLines = extractLastLines(text, lineCount = TILE_LINE_COUNT)
                 )
             }
         } catch (e: Exception) {
-            android.util.Log.e("DailyNoteReader", "Failed to read note file: ${file.name}", e)
+            android.util.Log.w("DailyNoteReader", "Failed to read note: ${file.name}", e)
             null
         }
     }
@@ -90,63 +93,88 @@ class DailyNoteReader(private val context: Context) {
 
     private fun extractLastLines(text: String, lineCount: Int): String {
         val cleanedText = preprocessText(text)
-        val lines = cleanedText.lines()
+        
+        // Process lines: strip markdown, filter blanks, then wrap long lines
+        val wrappedLines = cleanedText.lines()
             .map { stripMarkdown(it) }
             .filter { it.isNotBlank() }
-        return lines.takeLast(lineCount).joinToString("\n")
+            .flatMap { wrapLine(it, TILE_MAX_CHARS_PER_LINE) }
+        
+        return wrappedLines.takeLast(lineCount).joinToString("\n")
     }
     
+    private fun wrapLine(line: String, maxChars: Int): List<String> {
+        if (maxChars <= 0) return listOf(line)
+        if (line.length <= maxChars) return listOf(line)
+        
+        val result = mutableListOf<String>()
+        var remaining = line
+        
+        while (remaining.length > maxChars) {
+            // Find last space within limit for word wrap
+            val breakPoint = remaining.lastIndexOf(' ', maxChars)
+            var splitAt = if (breakPoint > 0) breakPoint else maxChars
+            
+            // Avoid splitting surrogate pairs (emojis)
+            if (splitAt > 0 && Character.isHighSurrogate(remaining[splitAt - 1])) {
+                splitAt--
+            }
+            
+            result.add(remaining.take(splitAt).trimEnd())
+            remaining = remaining.drop(splitAt).trimStart()
+        }
+        if (remaining.isNotBlank()) {
+            result.add(remaining)
+        }
+        return result
+    }
+
     private fun stripMarkdown(line: String): String {
-        // Skip frontmatter delimiters and blank results
         if (line.trim() == "---") return ""
         
-        // Wrap in try-catch to handle pathological regex input gracefully
         return try {
-            line
-            // Tasks: - [ ] → ☐, - [x] → ☑
-            .replace(Regex("""^\s*[-*+]\s*\[\s*[xX]\s*]\s*"""), "☑ ")
-            .replace(Regex("""^\s*[-*+]\s*\[\s*]\s*"""), "☐ ")
-            // Headers: # ## ###
-            .replace(Regex("""^#+\s*"""), "")
-            // Bold/Italic
-            .replace(Regex("""\*\*(.+?)\*\*"""), "$1")
-            .replace(Regex("""\*(.+?)\*"""), "$1")
-            .replace(Regex("""__(.+?)__"""), "$1")
-            .replace(Regex("""_(.+?)_"""), "$1")
-            // Strikethrough
-            .replace(Regex("""~~(.+?)~~"""), "$1")
-            // Inline code
-            .replace(Regex("""`(.+?)`"""), "$1")
-            // List items → bullet (after task handling)
-            .replace(Regex("""^\s*[-*+]\s+"""), "• ")
-            // Numbered lists
-            .replace(Regex("""^\s*\d+\.\s+"""), "")
-            // Standard markdown links/images
-            .replace(Regex("""\[(.+?)]\(.+?\)"""), "$1")
-            .replace(Regex("""!\[.*?]\(.+?\)"""), "")
-            // Obsidian wikilinks: [[link]] → link, [[link|alias]] → alias
-            .replace(Regex("""!\[\[.+?]]"""), "[image]")  // Embedded images
-            .replace(Regex("""\[\[(.+?)\|(.+?)]]"""), "$2")  // Aliased links
-            .replace(Regex("""\[\[(.+?)]]"""), "$1")  // Simple links
-            // Obsidian highlights and comments
-            .replace(Regex("""==(.+?)=="""), "$1")  // Highlights
-            .replace(Regex("""%%.*?%%"""), "")  // Comments
-            // Tags (keep them, just remove #)
-            .replace(Regex("""#([a-zA-Z0-9_-]+)"""), "$1")
-            .trim()
+            var result = line
+            for ((pattern, replacement) in MARKDOWN_PATTERNS) {
+                result = result.replace(pattern, replacement)
+            }
+            result.trim()
         } catch (e: Exception) {
-            // Regex failed on pathological input - return original line trimmed
+            android.util.Log.w("DailyNoteReader", "stripMarkdown failed, using original", e)
             line.trim()
         }
     }
     
     private fun preprocessText(text: String): String {
         return try {
-            // Remove YAML frontmatter block
-            val frontmatterRegex = Regex("""^---\n[\s\S]*?\n---\n*""", RegexOption.MULTILINE)
-            text.replace(frontmatterRegex, "")
+            text.replace(FRONTMATTER_REGEX, "")
         } catch (e: Exception) {
-            text // Return original if regex fails
+            text
         }
+    }
+    
+    companion object {
+        private val FRONTMATTER_REGEX = Regex("""^---\r?\n[\s\S]*?\r?\n---\r?\n*""")
+        
+        private val MARKDOWN_PATTERNS = listOf(
+            Regex("""^\s*[-*+]\s*\[\s*[xX]\s*]\s*""") to "☑ ",      // Checked task
+            Regex("""^\s*[-*+]\s*\[\s*]\s*""") to "☐ ",             // Unchecked task
+            Regex("""^#+\s*""") to "",                               // Headers
+            Regex("""\*\*(.+?)\*\*""") to "$1",                      // Bold
+            Regex("""\*(.+?)\*""") to "$1",                          // Italic
+            Regex("""__(.+?)__""") to "$1",                          // Bold alt
+            Regex("""_(.+?)_""") to "$1",                            // Italic alt
+            Regex("""~~(.+?)~~""") to "$1",                          // Strikethrough
+            Regex("""`(.+?)`""") to "$1",                            // Inline code
+            Regex("""^\s*[-*+]\s+""") to "• ",                       // List items
+            Regex("""^\s*\d+\.\s+""") to "• ",                       // Numbered lists
+            Regex("""\[(.+?)]\(.+?\)""") to "$1",                    // Links
+            Regex("""!\[.*?]\(.+?\)""") to "",                       // Images
+            Regex("""!\[\[.+?]]""") to "[image]",                    // Obsidian embeds
+            Regex("""\[\[(.+?)\|(.+?)]]""") to "$2",                 // Aliased wikilinks
+            Regex("""\[\[(.+?)]]""") to "$1",                        // Wikilinks
+            Regex("""==(.+?)==""") to "$1",                          // Highlights
+            Regex("""%%.*?%%""") to "",                              // Comments
+            Regex("""#([a-zA-Z0-9_-]+)""") to "$1"                   // Tags
+        )
     }
 }

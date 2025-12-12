@@ -97,7 +97,7 @@ class DailyNoteTileService : TileService() {
                             .setColor(argb(0xFFFFFFFF.toInt()))
                             .build()
                     )
-                    .setMaxLines(10)
+                    .setMaxLines(TILE_LINE_COUNT)
                     .build()
             )
             .setPrimaryChipContent(
@@ -124,5 +124,6 @@ class DailyNoteTileService : TileService() {
 
     companion object {
         private const val RESOURCES_VERSION = "1"
+        private const val TILE_LINE_COUNT = 9
     }
 }
